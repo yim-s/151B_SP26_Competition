@@ -299,19 +299,19 @@ def extract_MCQ(text: str) -> str:
 
 def extract_FRQ(text: str) -> str:
     if "\\boxed{" not in text:
-        return []
+        return ""
 
     try:
         ans = judger.extract_boxed_answer(text)
 
         if not ans or ans == text:
-            return []
+            return ""
 
         parts = judger.split_by_comma(ans)
-        return [judger.norm_ans_str(p) for p in parts]
-
+        normed = [judger.norm_ans_str(p) for p in parts]
+        return "|".join(normed)
     except:
-        return []
+        return ""
 
 def vote_MCQ(samples):
     counter = Counter()
@@ -326,20 +326,19 @@ def vote_MCQ(samples):
         return (finished or samples)[0]
     return rep[counter.most_common(1)[0][0]]
 
-def vote_FRQ(samples, n_slots):
-    slots = [Counter() for _ in range(n_slots)]
+def vote_FRQ(samples):
+    counter = Counter()
+    rep = {}
     for s in samples:
-        parts = extract_FRQ(s)
-        if len(parts) != n_slots:
+        ans = extract_FRQ(s)
+        if not ans:
             continue
-        for i, p in enumerate(parts):
-            slots[i][p] += 1
-    if any(len(c) == 0 for c in slots):
+        counter[ans] += 1
+        rep.setdefault(ans, s)
+    if not counter:
         finished = [s for s in samples if "</think>" in s]
         return (finished or samples)[0]
-
-    finished = [s for s in samples if "</think>" in s]
-    return (finished or samples)[0].rstrip() + "\n\nThe final answer after Self-Consistency is \\boxed{" + ", ".join(c.most_common(1)[0][0] for c in slots) + "}."
+    return rep[counter.most_common(1)[0][0]]
 
 # Build prompts for first 5 entries
 prompts = []
@@ -361,13 +360,7 @@ responses = []
 needs_retry = []
 for idx, (item, out) in enumerate(zip(data, outputs)):
     samples = [o.text.strip() for o in out.outputs]
-
-    if item.get("options"):
-        chosen = vote_MCQ(samples)
-    else:
-        n_slots = max(number_ANS(item["question"]), 1)
-        chosen = vote_FRQ(samples, n_slots)
-
+    chosen = vote_MCQ(samples) if item.get("options") else vote_FRQ(samples)
     responses.append(chosen)
     # Flag for retry the chosen response does not contain a final \boxed{}
     if "\\boxed{" not in chosen[-1500:]:
